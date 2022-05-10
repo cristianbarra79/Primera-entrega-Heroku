@@ -1,112 +1,156 @@
-const socket = io.connect();
 
-const normalize = normalizr.normalize
-const denormalize = normalizr.denormalize
-const schema = normalizr.schema
+const verProducto = document.querySelector("#verProductos")
+const cargarProductos = document.querySelector("#cargarProductos")
+const crearCarrito = document.querySelector("#crearCarrito")
+const verCarrito = document.querySelector("#verCarrito")
 
+const contenido = document.querySelector("#contenido")
+verCarrito.style.visibility = "hidden";
 
-const chat = document.querySelector("#chat");
-const input = document.querySelector("#mi-mensaje");
-const boton = document.querySelector("#enviar");
+let carrito_id
 
-const btnMail = document.querySelector("#btnNombre");
-const mail = document.querySelector("#mail");
-
-document.getElementById("chat").style.display = "none";
-input.style.display = "none";
-boton.style.display = "none";
-
-var d = new Date();
-
-fetch("/api/productos-test")
-  .then(response => response.json())
-  .then((json) => {
-  fetch("../../plantilla.txt")
-    .then(response => response.text())
-    .then(datos => {
-        let theTemplateScript = datos;        
-        let theTemplate = Handlebars.compile(theTemplateScript);
-        
-        let context = {
-          productos : json
-        };
-        let theCompiledHtml = theTemplate(context);
-        
-        $("#tabla").html(theCompiledHtml);
+verProducto.addEventListener("click", ()=>{
+    
+    fetch("/api/productos")
+    .then(response => response.json())
+    .then((json) => {        
+        const data = json.map( e => {
+            return `<div class="card" style="width: 18rem;">
+                <img src="${e.image}" class="card-img-top" alt="">
+                <div class="card-body">
+                    <h5 class="card-title">${e.title}</h5>
+                    <p class="card-text">${e.description}</p>
+                    <button onclick="comprar(${e.id})" ${carrito_id ? null : "disabled"} class="btn btn-primary">Comprar</button>
+                    <a onclick="actualizar(${e.id})" class="btn btn-primary">Actualizar</a>
+                    <a onclick="eliminarProd(${e.id})" class="btn btn-primary">Eliminar</a>
+                </div>
+            </div>`
+        })        
+        contenido.innerHTML = data.join("")
     })
-  })
+})
 
+cargarProductos.addEventListener("click", ()=>{
+    contenido.innerHTML = `<form action="/api/productos" method="POST" class="col align-self-center">
+        <label for="title">Nombre</label>
+        <input name="title" type="text">
+        <label for="descripcion">descripcion</label>
+        <input name="description" type="text">
+        <label for="codigo">código</label>
+        <input name="codigo" type="text">
+        <label for="image">Imagen</label>
+        <input name="image" type="text">
+        <label for="price">Precio</label>
+        <input name="price" type="text">
+        <label for="count">stock</label>
+        <input name="count" type="text">        
+        <input type="submit" value="Agregar">
+    </form>`
+})
 
+crearCarrito.addEventListener("click", ()=>{
+    verCarrito.style.visibility = "visible";
+    crearCarrito.style.visibility = "hidden";
+    fetch("/api/carrito/", {
+        method:"POST",            
+    headers: {
+        "Content-type": "application/json; charset=UTF-8"
+        }
+    })
+    .then(response => response.json())
+    .then((json) => carrito_id = json.id)
+})
 
-socket.on("mensajes", (data) => {
+verCarrito.addEventListener("click", ()=>{
+    fetch(`/api/carrito/${carrito_id}/productos`)
+    .then(response => response.json())
+    .then((json) => {
+        
+        if (json.length == 0) {
+            contenido.innerHTML = `<h1>Carrito Vacio</h1>`
+        }else{
+            const data = json.map( e => {
+                return `<div class="card" style="width: 18rem;">
+                    <img src="${e.image}" class="card-img-top" alt="">
+                    <div class="card-body">
+                        <h5 class="card-title">${e.title}</h5>
+                        <p class="card-text">${e.description}</p>                        
+                    </div>
+                    <a onclick="sacarDeCarrito(${e.id})" class="btn btn-primary">Eliminar</a>
+                </div>`
+            })
+            contenido.innerHTML = data.join("")
+        }
+    })
+})
 
-  const users = new schema.Entity('author', {}, { idAttribute: "author.mail" })
+const comprar = (id) => { 
+    fetch(`/api/carrito/${carrito_id}/productos`, {
+        method:"POST",
+        body: JSON.stringify({id: id}),    
+    headers: {
+        "Content-type": "application/json; charset=UTF-8"
+        }
+    })        
+}
 
-  // Definimos un esquema de comentadores
-  const text = new schema.Entity('text', {
-      author: users
-  })
-  const desnormalizados = denormalize(data.result, text, data.entities);  
+const actualizar = (id) => {
+    fetch(`/api/productos/${id}`)
+    .then(response => response.json())
+    .then((json) => {
 
-
-    const todo = desnormalizados.messages
-      .map(
-        (e) =>
-          `<div>
-              <b style="color:#0051FF">${e.author.mail}</b> <span style="color:#C95200">[${e.fyh}]</span>: <i style="color:#28FF01">${e.text}</i> 
-          </div>`
-      )
-      .join(" ");
-  
-    chat.innerHTML = todo;
-});
-
-
-const first = () => {
-  let d = new Date();  
-  const mensaje = { 
-    author: {
-        mail: mail.value, 
-        nombre: nombre.value, 
-        apellido: apellido.value, 
-        edad: edad.value, 
-        alias: alias.value,
-        avatar: avatar.value
-    },
-    fyh: d.getDate() + "/" + (d.getMonth() +1) + "/" + d.getFullYear() +" " + d.getHours() + ":" + d.getMinutes() + ":" + d.getSeconds(),
-    text: input.value
-  }
-  if (mensaje.mensaje != "") {    
-    socket.emit("envio", mensaje);
-    input.value = "";
-  } else {
-    console.log("no hay nada");
-  }
-};
-  
-  
-const addProduct = (e) => {
+        contenido.innerHTML = `
+        <form onsubmit=actualizarProd(${json.id}) class="col align-self-center">
+            <label for="title">Nombre</label>
+            <input name="title" value=${json.title} type="text">
+            <label for="descripcion">descripcion</label>
+            <input name="description" value=${json.description} type="text">
+            <label for="codigo">código</label>
+            <input name="codigo" value=${json.codigo} type="text">
+            <label for="image">Imagen</label>
+            <input name="image" value=${json.image} type="text">
+            <label for="price">Precio</label>
+            <input name="price" value=${json.price} type="text">
+            <label for="count">stock</label>
+            <input name="count" value=${json.count} type="text">        
+            <input type="submit" value="Agregar">
+        </form>`
+    })
     
-    const producto = {
-        title: document.querySelector('input[name="title"]').value,
-        price: document.querySelector('input[name="price"]').value,
-        thumbnail: document.querySelector('input[name="thumbnail"]').value
-    }
-    socket.emit('new-product', producto);
-    return false;
-};
-    
-boton.addEventListener("click", first);
+}
 
-btnMail.addEventListener("click", () => {
-    if (mail.value == "") {
-      alert("Escribi tu nombre");
-    } else {
-      mail.disabled = true;
-      input.disabled = false;
-      document.getElementById("chat").style.display = "block";
-      document.getElementById("login").style.display = "none";
-      input.style.display = "block";
-      boton.style.display = "block";
-    }
-  });
+const actualizarProd = (id) => {
+    fetch(`/api/productos/${id}`, {
+        method:"PUT",
+        body: JSON.stringify(
+            {                
+                title: document.querySelector('input[name="title"]').value,
+                price: document.querySelector('input[name="price"]').value,
+                description: document.querySelector('input[name="description"]').value,
+                image: document.querySelector('input[name="image"]').value,
+                count: document.querySelector('input[name="count"]').value,
+                codigo: document.querySelector('input[name="codigo"]').value
+            }),    
+    headers: {
+        "Content-type": "application/json; charset=UTF-8"
+        }
+    })
+}
+
+const eliminarProd = (id) => { 
+    fetch(`/api/productos/${id}`, {
+        method:"DELETE",
+        headers: {
+            "Content-type": "application/json; charset=UTF-8"
+            }
+        })
+}
+
+const sacarDeCarrito = (id) => { 
+    fetch(`/api/carrito/${carrito_id}/productos/${id}`, {
+        method:"DELETE",
+        headers: {
+            "Content-type": "application/json; charset=UTF-8"
+            }
+        })
+ }

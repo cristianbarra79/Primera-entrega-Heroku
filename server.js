@@ -1,175 +1,267 @@
-const express = require('express');
-const cookieParser = require('cookie-parser');
-const session = require('express-session');
-const connectMongo = require('connect-mongo');
-const handlebars = require("express-handlebars")
-const { Server: HttpServer } = require("http");
-const { Server: IOServer } = require("socket.io");
-const mongoose = require("mongoose")
-const normalizr = require("normalizr")
-const normalize = normalizr.normalize
-const schema = normalizr.schema
+const express = require('express')
+const fs = require('fs')
+const { Router } = express
 
-const { faker } = require('@faker-js/faker');
-faker.locale = 'es';
-
-const PORT = process.env.PORT || 8080
-
-const app = express();
-
-const httpServer = new HttpServer(app);
-const io = new IOServer(httpServer);
-
-const mongoDatos = {
-    URL : "mongodb://localhost:27017/mensajes",
-    option: {
-        useNewUrlParser: true,
-        useUnifiedTopology : true
-    }
-}
-
-
-const schemamongo = new mongoose.Schema({
-    author:{
-        mail: {type: String, require:true},
-        nombre : {type: String, require:true},
-        apellido : {type: String, require:true},
-        edad:{type: Number, require:true},
-        alias:{type: String, require:true},
-        avatar:{type: String, require:true}
-    },
-    fyh:{type: String, require:true},
-    text:{type: String, require:true}
-})
-
-class chat{
-    constructor(){        
-        this.modelo = mongoose.model("chats", schemamongo)
-    }
-
-    async pedirDatos(){
-        await mongoose.connect(mongoDatos.URL, mongoDatos.option)
-        const resp = await this.modelo.find()         
-        
-        
-        const users = new schema.Entity('author')
-
-        
-        const text = new schema.Entity('text', {
-            author: users
-        })
-
-        const normalizados = normalize(
-            { id: 'mensajes', messages: resp },
-            text
-        );        
-
-        return normalizados        
-    }
- 
-    async guardarChat(datos){        
-        await mongoose.connect(mongoDatos.URL, mongoDatos.option)
-        const nuevoProd = new this.modelo(datos)
-        let doc = await nuevoProd.save();
-        
-    }
-}
-
-const chats = new chat()
-
-const productosAleatorios = () => {
-    let productosAzar = []
-    for (let i = 1; i < 6; i++) {
-        productosAzar.push({
-            id: i,
-            title: faker.commerce.productName(),
-            price: faker.commerce.price(),
-            thumbnail: faker.image.food(256, 256, true)
-        })
-    }
-    return productosAzar
-}
-
-
-
-const MongoStore = connectMongo.create({
-    mongoUrl: 'mongodb+srv://admin:admin@cluster0.z2crk.mongodb.net/myFirstDatabase?retryWrites=true&w=majority',
-    ttl: 60
-})
-
-
+const app = express()
+const routerCarrito = Router()
+const routerProductos = Router()
+const PORT = process.env.PORT || 8080;
 
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
-app.use(express.static("./public"));
 
-app.use(cookieParser());
-app.use(session({
-    store: MongoStore,
-    secret: 'secret',
-    resave: false,
-    saveUninitialized: false,
-    cookie:{        
-        maxAge: 60000
+const acceso = true
+
+async function pedirArchivos(req, res, next){    
+    try {
+      const contenido = await fs.promises.readFile(`./productos.txt`, "utf-8")
+      const datos = JSON.parse(contenido)
+      req.datos = datos
+    } catch (err) {
+      console.log(err);
     }
-}));
+next()
+}
 
-app.engine("hbs", 
-    handlebars.engine({
-    extname:".hbs", 
-    defaultLayout: "index.hbs"
-    })
-)
+function filtrar(req,res,next) {
+    const datos = req.datos    
+    const producto = datos.find(prod => prod.id == req.params.id)
+    if (!producto) {
+        req.filtrado = { error : 'producto no encontrado' }
+    }else
+        req.filtrado = producto
+    next()
+}
 
-app.set('view engine', 'hbs')
-app.set('views', './views')
+async function agregar(req,res,next){
+    try{
+        const contenido = req.datos        
+        const time = new Date()        
+        let indice = contenido.length > 0 ? contenido[contenido.length-1].id+1 : 1
+        let object = req.body        
+        if( !object.title || !object.price || !object.description || !object.image || !object.count || !object.codigo){
+            res.send({"message" : "faltan datos"})
+            return;
+        }
+        object = {...object, id : indice, timestamp : time}
+        req.agregado = object
+        contenido.push(object)
+        
+        try{
+            await fs.promises.writeFile(`./productos.txt`, JSON.stringify(contenido))
+            next()
+        }
+        catch(err){
+            console.log(`Error al escribir: ${err}`);
+        }
+    }
+    catch(err){            
+        console.log(`Error al agregar: ${err}`);        
+    }
+}
 
-app.get("/api/productos-test", (req, res) => {    
-    const resp = productosAleatorios()
-    res.send(resp)
-});
-
-app.get('/login', (req,res) => {
-    if (!req.session.usuario) {
-        res.render("login")
+async function modificar(req,res,next) {
+    const datos = req.datos    
+    let indexProducto = datos.findIndex(x => x.id == req.params.id);    
+    if (!datos[indexProducto]) {
+        res.end("No se encuntra producto")
     }else{
-        req.session.contador++;
-        res.render("usuario", {usuario : req.session.usuario, contador: req.session.contador})    
+        const cambio = Object.assign(datos[indexProducto], req.body);
+        datos[indexProducto]= cambio
+        await fs.promises.writeFile(`./productos.txt`, JSON.stringify(datos))
+        next()
     }
-})
+}
 
-app.post('/login', (req,res) => {    
-    req.session.contador = 0;
-    req.session.usuario = req.body.nombre
-    res.redirect("/login")
-})
+async function deleteById(req,res,next){
 
-
-app.get('/logout', (req,res) => {
-    let usuario = req.session.usuario
-    req.session.destroy()
-    res.render("logout", {usuario : usuario})    
-})
-
-
-io.on("connection", (socket) => {
-    console.log("Usuario conectado");
-
-    chats.pedirDatos()
-        .then(resp => io.sockets.emit("mensajes", resp))
-
-
-    socket.on("envio", (data) => {
-        async function asyncCallChat(data) {
-            await chats.guardarChat(data);
-            chats.pedirDatos().then(resp => io.sockets.emit("mensajes", resp))                
+    const contenido = req.datos
+    const indice = contenido.findIndex(x => x.id == req.params.id)
+    if (indice >= 0) {
+        contenido.splice(indice,1)
+        try {
+            await fs.promises.writeFile(`./productos.txt`, JSON.stringify(contenido))        
             
+        } catch (err) {
+            console.log("error al escribir" + err);
+        }
+    }else
+     res.end("No se encuentra el articulo")
+    next()
+}
+
+async function leerCarrito(req,res,next) {
+    try {
+        const contenido = await fs.promises.readFile(`./carrito.txt`, "utf-8")
+        const datos = JSON.parse(contenido)
+        req.carrito = datos
+
+        next()
+    }catch(err){
+        console.log(`error al leer ${carrito}`);
+    }
+}
+
+async function crearCarrito(req,res,next) {
+    const datos = req.carrito
+    let indice = datos.length > 0 ? datos[datos.length-1].id+1 : 1
+    let fecha = new Date()
+    let carrito = {id : indice, timestamp: fecha, productos : []}
+    datos.push(carrito)
+    req.id = indice
+    
+    try {
+        await fs.promises.writeFile(`./carrito.txt`, JSON.stringify(datos))
+        
+        next()
+    } catch (error) {
+        console.log(`error al escribir ${error}`);
+    }    
+}
+
+async function borrarCarrito(req,res,next){
+    const datos = req.carrito
+    const indice = datos.findIndex(x => x.id == req.params.id)
+    if (indice >= 0) {
+        datos.splice(indice,1)
+        try {
+            await fs.promises.writeFile(`./carrito.txt`, JSON.stringify(datos))        
+            
+        } catch (err) {
+            console.log("error al escribir" + err);
+        }
+    }else
+     res.end("No se encuentra el articulo")
+    next()
+}
+
+async function filtrarCarrito(req,res,next) {
+    const datos = req.carrito    
+    const carrito = datos.find(prod => prod.id == req.params.id)
+    if (!carrito) {
+        req.carritoFiltrado = { "error" : `carrito no encontrado` }
+    }else
+        req.carritoFiltrado = carrito
+    next()
+}
+
+async function añadirAlCarrito(req,res,next){    
+    const datos = req.carrito
+    const productos = req.datos
+    if (!req.body.id) {
+        res.send({"message":"Ingrese el id del producto"})
+        return
+    }
+    const indice = datos.findIndex(x => x.id == req.params.id)
+    if (indice >= 0){
+        const producto = productos.find(e => e.id == req.body.id)
+        if (!producto) {
+            res.send({"message":"productos no existen"})
+            return
         }
         
-        asyncCallChat(data)
-    });
+        datos[indice].productos.push(producto)
+        try {
+            await fs.promises.writeFile(`./carrito.txt`, JSON.stringify(datos))
+        } catch (error) {
+            console.log(error);
+        }
+    }else{
+        res.end("Carrito no encontrado")
+    }
+    next()
+}
+
+async function eliminarProducto(req,res,next){
+    const carrito = req.carrito
+    const indice = carrito.findIndex(x => x.id == req.params.id)    
+    if (indice >= 0) {
+        const productosEnCarrito = carrito[indice].productos        
+        const indiceProd = productosEnCarrito.findIndex(x => x.id == req.params.id_prod)
+        if  (indiceProd >= 0){            
+            carrito[indice].productos.splice(indiceProd,1)
+            try {
+                await fs.promises.writeFile(`./carrito.txt`, JSON.stringify(carrito))
+            } catch (err) {
+                console.log("error al escribir" + err);
+            }
+        }else{
+         res.send({"mensaje":"No se encuentra producto"})
+         return
+        }
+
+            
+
+    }else{
+        res.send({"mensaje":"No se encuentra carrito"})
+        return
+    }
+    next()
+}
+
+const login = (req,res,next) => { 
+    acceso ? next() : 
+    res.send({ "error" : -1, "descripcion": "ruta o método no autorizado" }) 
+    
+}
 
 
+
+routerCarrito.post("/", leerCarrito, crearCarrito, (req, res) =>{
+    const respuesta = {
+        id : req.id
+    }
+    res.send(JSON.stringify(respuesta))
+    //res.end(` El id es:${req.id}`)
 })
 
-httpServer.listen(PORT, () => console.log("SERVER ON"));
+routerCarrito.delete("/:id", leerCarrito, borrarCarrito, (req,res)=>{
+    res.send("Carrito eliminado")
+})
+
+routerCarrito.get("/:id/productos", leerCarrito, filtrarCarrito, (req,res)=>{
+    res.send(req.carritoFiltrado.productos)
+})
+
+routerCarrito.post("/:id/productos", pedirArchivos, leerCarrito, añadirAlCarrito, (req,res)=>{
+    res.send("producto añadido")
+})
+
+routerCarrito.delete('/:id/productos/:id_prod',leerCarrito, eliminarProducto, (req, res) =>{
+    res.send({"mensaje":"producto eliminado con exito"})
+})
+
+
+
+
+routerProductos.get('/', pedirArchivos, (req, res) => {
+    res.send(req.datos)    
+})
+
+routerProductos.get('/:id', pedirArchivos, filtrar, (req, res) => {
+    res.send(req.filtrado)    
+})
+
+routerProductos.post('/', login, pedirArchivos, agregar,(req, res) => {
+    res.send(req.agregado)
+})
+
+routerProductos.put('/:id', login, pedirArchivos, modificar, (req, res) => {
+    res.send("Articulo actualizado")    
+})
+
+routerProductos.delete('/:id', login, pedirArchivos, deleteById,(req,res) =>{
+    res.send("Articulo eliminado")
+})
+
+
+
+app.use('/', express.static('public'));
+
+app.use('/api/productos', routerProductos)
+app.use('/api/carrito', routerCarrito)
+
+const server = app.listen(PORT, () => {
+    console.log(`Servidor http escuchando en el puerto ${server.address().port}`)
+ })
+server.on("error", error => console.log(`Error en servidor ${error}`))

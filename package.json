@@ -1,5 +1,5 @@
 {
-  "name": "Desafio-clase24",
+  "name": "Desafio-clase14",
   "version": "1.0.0",
   "description": "",
   "main": "server.js",
@@ -11,17 +11,6 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "connect-mongo": "^4.6.0",
-    "cookie-parser": "^1.4.6",
-    "express": "^4.17.3",
-    "express-handlebars": "^6.0.2",
-    "express-session": "^1.17.2",
-    "mongodb": "^4.4.1",
-    "mongoose": "^6.2.9",
-    "normalizr": "^3.6.2",
-    "socket.io": "^4.4.1"
-  },
-  "devDependencies": {
-    "@faker-js/faker": "^6.1.1"
+    "express": "^4.17.2"
   }
 }
