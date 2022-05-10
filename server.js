@@ -13,6 +13,8 @@ const schema = normalizr.schema
 const { faker } = require('@faker-js/faker');
 faker.locale = 'es';
 
+const PORT = process.env.PORT || 8080
+
 const app = express();
 
 const httpServer = new HttpServer(app);
@@ -170,4 +172,4 @@ io.on("connection", (socket) => {
 
 })
 
-httpServer.listen(8080, () => console.log("SERVER ON"));
+httpServer.listen(PORT, () => console.log("SERVER ON"));
